@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Bilibili CC字幕工具
-// @namespace    indefined
+// @name         Bilibili CC字幕工具（添加繁体转简体）
+// @namespace    kofua
 // @version      0.5.24.1
-// @description  可以在B站加载外挂本地字幕、下载B站的CC字幕，旧版B站播放器可启用CC字幕
-// @author       indefined
+// @description  可以在B站加载外挂本地字幕、下载B站的CC字幕，旧版B站播放器可启用CC字幕，字幕转换由繁化姬驱动
+// @author       indefined, kofua
 // @supportURL   https://github.com/indefined/UserScripts/issues
 // @include      http*://www.bilibili.com/video/*
 // @include      http*://www.bilibili.com/bangumi/play/ss*
@@ -414,7 +414,7 @@
                 }))
             }).then(()=>{
                 if('function'==typeof(this.statusHandler)) this.statusHandler(true);
-                bilibiliCCHelper.toast(`载入本地字幕:${this.file.name},共${this.data.body.length}行,偏移:${offset}s`);
+                bilibiliCCHelper.toast(`载入本地字幕：${this.file.name}，共${this.data.body.length}行，偏移：${offset}s`);
             }).catch(e=>{
                 bilibiliCCHelper.toast('载入字幕失败',e);
             });
@@ -673,7 +673,7 @@
                 :`https://member.bilibili.com/v2#/zimu/my-zimu/zimu-editor?cid=${window.cid}&${window.aid?`aid=${window.aid}`:`bvid=${window.bvid}`}`,
                 target: '_blank',
                 style: 'margin-right: 0px;height: 24px;padding:0 6px;',
-                title: this.subtitle.allow_submit?'':'本视频无法添加字幕，可能原因是:\r\n·UP主未允许观众投稿字幕\r\n·您未达到UP主设置的投稿字幕条件',
+                title: this.subtitle.allow_submit?'':'本视频无法添加字幕，可能原因是：\r\n·UP主未允许观众投稿字幕\r\n·您未达到UP主设置的投稿字幕条件',
             },languageDiv);
             //字体大小
             elements.createAs('input',{
@@ -748,7 +748,7 @@
                 this.setting = JSON.parse(localStorage.bilibili_player_settings).subtitle;
                 if (!this.setting) throw '当前播放器没有字幕设置';
             }catch (e) {
-                bilibiliCCHelper.toast('bilibili CC字幕助手读取设置出错,将使用默认设置:', e);
+                bilibiliCCHelper.toast('bilibili CC字幕助手读取设置出错，将使用默认设置：', e);
                 this.setting = {backgroundopacity: 0.5,color: 16777215,fontsize: 1,isclosed: false,scale: true,shadow: "0", position: 'bc'};
             }
             this.initUI();
@@ -793,6 +793,20 @@
             });
             this.panel.insertAdjacentElement('afterend',downloadBtn);
             this.updateDownloadBtn(selectedItem&&selectedItem.dataset.value);
+            let zhHantItem = selector.querySelector('li.bui-select-item[data-value="zh-Hant"]');
+            let zhCNItem = selector.querySelector('li.bui-select-item[data-value="zh-CN"]');
+            if (zhHantItem && !zhCNItem) {
+                //简体中文
+                zhCNItem = zhHantItem.cloneNode();
+                zhCNItem.dataset.value = 'zh-CN';
+                elements.setAs(zhCNItem, {
+                    innerText: '简中（生成）',
+                    onclick: () => {
+                        zhCNItem.classList.add('bui-select-item-active');
+                        bilibiliCCHelper.loadSubtitle('zh-CN');
+                    }
+                }, selector);
+            }
             //本地字幕
             elements.setAs(localItem,{
                 innerText: '本地字幕',
@@ -837,6 +851,10 @@
             console.log('Bilibili CC Helper init new UI success.');
         },
         init(subtitle){
+            let zh_CN = subtitle.subtitles.find((item) => item.lan === 'zh-CN');
+            if (zh_CN && zh_CN.lan_doc === '简中（生成）') {
+                bilibiliCCHelper.loadSubtitle('zh-CN');
+            }
             this.hasSubtitles = subtitle.count;
             this.selectedLan = undefined;
             this.selectedLocal = false;
@@ -956,7 +974,7 @@
         loadSubtitle(lan){
             this.getSubtitle(lan)
                 .then(data=>this.updateSubtitle(data))
-                .then(()=>this.toast(lan=='close'?'字幕已关闭':`载入字幕:${this.getSubtitleInfo(lan).lan_doc}`))
+                .then(()=>this.toast(lan=='close'?'字幕已关闭':`载入字幕：${this.getSubtitleInfo(lan).lan_doc}`))
                 .catch(e=>this.toast('载入字幕失败',e));
         },
         async getSubtitle(lan, name){
@@ -1003,21 +1021,55 @@
                                 if (ret.code!=0) throw('无法读取本视频APP字幕配置'+ret.message);
                                 this.subtitle = ret.data && ret.data.subtitle || {subtitles:[]};
                                 this.subtitle.count = this.subtitle.subtitles.length;
+                                let lan_codes = this.subtitle.subtitles.map(item => item.lan);
+                                if (lan_codes.includes('zh-Hant') && !lan_codes.includes('zh-CN')) {
+                                    let zh_hant = this.subtitle.subtitles.find(item => item.lan === 'zh-Hant');
+                                    let hant_url = zh_hant.subtitle_url;
+                                    let hant_id = zh_hant.id;
+                                    let real_id = BigInt(zh_hant.id_str);
+                                    let cn_sub = {
+                                        lan: 'zh-CN',
+                                        lan_doc: '简中（生成）',
+                                        subtitle_url: `https://www.kofua.top/bsub/t2s?sub_url=${encodeURIComponent(hant_url)}`,
+                                        type: 0,
+                                        id: hant_id + 1,
+                                        id_str: (real_id + 1n).toString(),
+                                    };
+                                    this.subtitle.subtitles.push(cn_sub);
+                                    this.subtitle.count = this.subtitle.subtitles.length;
+                                }
                                 this.subtitle.subtitles.forEach(item=>(item.subtitle_url = item.subtitle_url.replace(/https?:\/\//,'//')))
                                 this.subtitle.subtitles.push({lan:'close',lan_doc:'关闭'},{lan:'local',lan_doc:'本地字幕'});
                                 this.subtitle.allow_submit = false;
                                 return this.subtitle;
                             });
                         }
-                        if(ret.code!=0||!ret.data||!ret.data.subtitle) throw('读取视频字幕配置错误:'+ret.code+ret.message);
+                        if(ret.code!=0||!ret.data||!ret.data.subtitle) throw('读取视频字幕配置错误：'+ret.code+ret.message);
                         this.subtitle = ret.data.subtitle;
                         this.subtitle.count = this.subtitle.subtitles.length;
+                        let lan_codes = this.subtitle.subtitles.map(item => item.lan);
+                        if (lan_codes.includes('zh-Hant') && !lan_codes.includes('zh-CN')) {
+                            let zh_hant = this.subtitle.subtitles.find(item => item.lan === 'zh-Hant');
+                            let hant_url = 'http:' + zh_hant.subtitle_url;
+                            let hant_id = zh_hant.id;
+                            let real_id = BigInt(zh_hant.id_str);
+                            let cn_sub = {
+                                lan: 'zh-CN',
+                                lan_doc: '简中（生成）',
+                                subtitle_url: `//www.kofua.top/bsub/t2s?sub_url=${encodeURIComponent(hant_url)}`,
+                                type: 0,
+                                id: hant_id + 1,
+                                id_str: (real_id + 1n).toString(),
+                            };
+                            this.subtitle.subtitles.push(cn_sub);
+                            this.subtitle.count = this.subtitle.subtitles.length;
+                        }
                         this.subtitle.subtitles.push({lan:'close',lan_doc:'关闭'},{lan:'local',lan_doc:'本地字幕'});
                         return this.subtitle;
                     });
                 }
                 else {
-                    throw('请求字幕配置失败:'+res.statusText);
+                    throw('请求字幕配置失败：'+res.statusText);
                 }
             })
         },
